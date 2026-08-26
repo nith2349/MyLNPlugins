@@ -1,0 +1,11 @@
+[
+  {
+    "id": "affairscloud",
+    "name": "AffairsCloud Current Affairs",
+    "site": "https://affairscloud.com/",
+    "lang": "English",
+    "version": "1.0.0",
+    "url": "https://github.com/nith2349/MyLNPlugins/blob/main/affairsCloud.js",
+    "iconUrl": "https://affairscloud.com/wp-content/uploads/2023/01/cropped-cropped-AffairsCloud-Fevicon-Logo-ordinary-512-192x192.png"
+  }
+]
