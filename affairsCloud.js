@@ -95,6 +95,7 @@ var DAILY_POST_RE = /\/current-affairs-(\d+(?:-\d+)*)-([a-z]+)-(\d{4})\/?(?:[?#]
 // the real news paragraphs.
 var JUNK_PHRASES = [
     'We are here for you to provide',
+    'will help you to get more marks in',
     'Dear Aspirants',
     'Read Current Affairs in',
     'We are Hiring',
@@ -125,7 +126,7 @@ var AffairsCloud = /** @class */ (function () {
         this.name = 'AffairsCloud Current Affairs';
         this.icon = 'src/en/affairscloud/icon.png';
         this.site = 'https://affairscloud.com/';
-        this.version = '2.0.0';
+        this.version = '2.2.0';
         this.imageRequestInit = {
             headers: { Referer: this.site },
         };
@@ -242,7 +243,7 @@ var AffairsCloud = /** @class */ (function () {
     };
     AffairsCloud.prototype.parseChapter = function (chapterPath) {
         return __awaiter(this, void 0, void 0, function () {
-            var body, $, container;
+            var body, $, container, marker;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0: return [4 /*yield*/, (0, fetch_1.fetchApi)(this.site + chapterPath).then(function (r) { return r.text(); })];
@@ -254,9 +255,43 @@ var AffairsCloud = /** @class */ (function () {
                             container = $('article .entry-content');
                         if (container.length === 0)
                             container = $('article');
+                        marker = container
+                            .find('*')
+                            .filter(function (_, el) { return /^\*{3,}$/.test($(el).text().trim()); })
+                            .first();
+                        if (marker.length > 0) {
+                            marker.nextAll().remove();
+                            marker.remove();
+                        }
+                        // Fixed intro boilerplate (subscription/app nudges) that appears
+                        // before the real news starts, matched on leaf-ish elements only
+                        // so we never risk deleting a wrapper that also holds real text.
                         container.find('table, p, li').each(function (_, el) {
                             var text = $(el).text();
                             if (JUNK_PHRASES.some(function (phrase) { return text.includes(phrase); })) {
+                                $(el).remove();
+                            }
+                        });
+                        // Drop every image. AffairsCloud's real news bullets are plain
+                        // text; images here are ads, banners, and app/QR promos, not
+                        // content.
+                        container.find('img').remove();
+                        // Drop every link, text included. In practice, every hyperlink
+                        // AffairsCloud puts inside a post \u2013 app download prompts,
+                        // "click here" navigation, mock-test/job listings, "read this in
+                        // Hindi" \u2013 is app/site navigation rather than part of the
+                        // actual news, and the real current-affairs bullets themselves
+                        // are always plain, unlinked text. So rather than trying to guess
+                        // which specific links are "content" (which would need matching
+                        // every possible promo phrasing forever), every <a> is removed
+                        // outright, text and all.
+                        container.find('a').remove();
+                        // Some list items / paragraphs end up empty once their only
+                        // content was an image or a link (e.g. a footer <li> that was
+                        // just a link). Clear those out so the chapter doesn't end with
+                        // stray blank bullets.
+                        container.find('li, p').each(function (_, el) {
+                            if ($(el).text().trim() === '' && $(el).find('img').length === 0) {
                                 $(el).remove();
                             }
                         });
@@ -277,4 +312,3 @@ var AffairsCloud = /** @class */ (function () {
     return AffairsCloud;
 }());
 exports.default = new AffairsCloud();
-                
