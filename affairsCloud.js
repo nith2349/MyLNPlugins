@@ -95,6 +95,15 @@ var JUNK_PHRASES = [
     'Aspirant:',
     'Current Affairs Today (AffairsCloud Today)',
 ];
+// Turns [23, 24] into "23 & 24", [15, 16, 17] into "15, 16 & 17",
+// and [22] into "22", matching how AffairsCloud names combined-day
+// (usually weekend) posts.
+function formatDayList(days) {
+    if (days.length === 1)
+        return String(days[0]);
+    var strs = days.map(String);
+    return "".concat(strs.slice(0, -1).join(', '), " & ").concat(strs[strs.length - 1]);
+}
 var AffairsCloud = /** @class */ (function () {
     function AffairsCloud() {
         this.id = 'affairscloud';
@@ -140,8 +149,7 @@ var AffairsCloud = /** @class */ (function () {
     };
     AffairsCloud.prototype.parseNovel = function (novelPath) {
         return __awaiter(this, void 0, void 0, function () {
-            var monthMatch, label, novel, body, _a, $, chapters, seen;
-            var _this = this;
+            var monthMatch, label, novel, body, _a, $, targetMonthSlug, targetYear, DAILY_POST_RE, found, items;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
@@ -171,37 +179,50 @@ var AffairsCloud = /** @class */ (function () {
                         return [2 /*return*/, novel];
                     case 4:
                         $ = (0, cheerio_1.load)(body);
-                        chapters = [];
-                        seen = new Set();
-                        $('table tr').each(function (_, row) {
-                            var $row = $(row);
-                            var cells = $row.find('td, th');
-                            if (cells.length < 2)
+                        if (!monthMatch) {
+                            novel.chapters = [];
+                            return [2 /*return*/, novel];
+                        }
+                        targetMonthSlug = monthMatch[1].toLowerCase();
+                        targetYear = monthMatch[2];
+                        DAILY_POST_RE = /\/current-affairs-(\d+(?:-\d+)*)-([a-z]+)-(\d{4})\/?(?:[?#]|$)/i;
+                        found = new Map();
+                        $('a').each(function (_, el) {
+                            var href = $(el).attr('href') || '';
+                            var match = href.match(DAILY_POST_RE);
+                            if (!match)
                                 return;
-                            var dateLabel = $(cells[0]).text().trim();
-                            if (!dateLabel || /date-wise/i.test(dateLabel))
+                            var dayGroup = match[1], monthSlug = match[2], year = match[3];
+                            if (monthSlug.toLowerCase() !== targetMonthSlug ||
+                                year !== targetYear ||
+                                !MONTH_SLUGS.includes(monthSlug.toLowerCase())) {
                                 return;
-                            var link = $row
-                                .find('a')
-                                .toArray()
-                                .map(function (a) { return $(a).attr('href') || ''; })
-                                .find(function (href) {
-                                return /affairscloud\.com/i.test(href) &&
-                                    !/youtube\.com|youtu\.be/i.test(href) &&
-                                    /current-affairs-.*\d{4}/i.test(href);
-                            });
-                            if (!link || seen.has(link))
+                            }
+                            // Normalize to an absolute-path key so http/https or trailing
+                            // slash differences don't create duplicate chapters.
+                            var path = href.replace(/^https?:\/\/[^/]+/i, '').replace(/\/?$/, '/');
+                            if (found.has(path))
                                 return;
-                            seen.add(link);
-                            chapters.push({
-                                name: "Current Affairs ".concat(dateLabel),
-                                path: link.replace(_this.site, ''),
+                            found.set(path, {
+                                days: dayGroup.split('-').map(function (d) { return parseInt(d, 10); }),
+                                month: monthSlug.toLowerCase(),
+                                year: year,
                             });
                         });
-                        // The table lists newest date first; reverse so chapters read in
-                        // chronological order like a normal novel.
-                        chapters.reverse();
-                        novel.chapters = chapters;
+                        items = Array.from(found.entries()).map(function (_a) {
+                            var path = _a[0], info = _a[1];
+                            return ({
+                                path: path,
+                                days: info.days,
+                                label: "".concat(formatDayList(info.days), " ").concat(MONTH_LABELS[MONTH_SLUGS.indexOf(info.month)], " ").concat(info.year),
+                            });
+                        });
+                        // Oldest day first, like a normal novel's chapter order.
+                        items.sort(function (a, b) { return a.days[0] - b.days[0]; });
+                        novel.chapters = items.map(function (item) { return ({
+                            name: "Current Affairs ".concat(item.label),
+                            path: item.path.replace(/^\//, ''),
+                        }); });
                         return [2 /*return*/, novel];
                 }
             });
