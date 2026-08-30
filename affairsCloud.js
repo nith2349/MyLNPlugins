@@ -281,3 +281,4 @@ var AffairsCloud = /** @class */ (function () {
     return AffairsCloud;
 }());
 exports.default = new AffairsCloud();
+                    
