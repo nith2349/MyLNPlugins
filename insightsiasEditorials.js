@@ -61,7 +61,7 @@ var InsightsIASEditorials = /** @class */ (function () {
         this.name = 'InsightsIAS Editorial Analysis';
         this.icon = 'src/en/insightsiaseditorials/icon.png';
         this.site = 'https://www.insightsonindia.com/';
-        this.version = '1.1.0';
+        this.version = '1.2.0';
     }
     InsightsIASEditorials.prototype.fetchMonthGroups = function () {
         return __awaiter(this, void 0, void 0, function () {
@@ -78,7 +78,13 @@ var InsightsIASEditorials = /** @class */ (function () {
                             content = $('article');
                         groups = [];
                         current = null;
-                        content.children().each(function (_, el) {
+                        // Walk headings and lists in DOCUMENT ORDER via .find(), not
+                        // .children(). The page's month heading + list pairs aren't
+                        // guaranteed to be direct children of the content container (e.g.
+                        // a block editor can wrap each pair in its own <div>), and .find()
+                        // still returns matches in reading order regardless of how deep
+                        // they're nested, so this works either way.
+                        content.find('h1, h2, h3, h4, h5, h6, ul').each(function (_, el) {
                             var _a;
                             var $el = $(el);
                             var tag = ((_a = el.tagName) === null || _a === void 0 ? void 0 : _a.toLowerCase()) || '';
@@ -94,10 +100,13 @@ var InsightsIASEditorials = /** @class */ (function () {
                                         items: [],
                                     };
                                     groups.push(current);
-                                    return;
                                 }
+                                return;
                             }
-                            if (current && tag === 'ul') {
+                            // tag === 'ul'. Skip a <ul> nested inside another <ul> we've
+                            // already processed (its <a> tags would otherwise be double
+                            // counted once by the outer list and again here).
+                            if (current && $el.parents('ul').length === 0) {
                                 $el.find('a[href]').each(function (_, a) {
                                     var href = $(a).attr('href') || '';
                                     var name = $(a).text().trim();
