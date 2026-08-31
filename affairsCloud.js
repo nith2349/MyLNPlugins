@@ -39,258 +39,168 @@ Object.defineProperty(exports, "__esModule", { value: true });
 var cheerio_1 = require("cheerio");
 var fetch_1 = require("@libs/fetch");
 var defaultCover_1 = require("@libs/defaultCover");
-var MONTH_SLUGS = [
-    'january',
-    'february',
-    'march',
-    'april',
-    'may',
-    'june',
-    'july',
-    'august',
-    'september',
-    'october',
-    'november',
-    'december',
-];
-var MONTH_LABELS = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-];
-// AffairsCloud's month-by-month archive pages (current-affairs-<month>-
-// <year>/) stopped being kept up to date at some point in 2025, so this
-// plugin no longer relies on them. Instead it reads the site's own
-// rolling "Current Affairs Today" hub, which is still maintained, and
-// treats the whole thing as a single "novel" whose chapters are the
-// most recent daily (or weekend-combined) posts \u2013 refreshed every
-// time the novel is opened, the same way the PIB plugin works.
-var HUB_URL = 'https://affairscloud.com/current-affairs-ca/current-affairs-today/';
-// How many hub pages to pull chapters from. The hub lists roughly 15-20
-// posts per page, so 3 pages covers a couple of months of history,
-// which is plenty for a "latest" feed people re-open regularly. Raise
-// this if you want more back-history on first install.
-var HUB_PAGES_TO_FETCH = 3;
-// Matches AffairsCloud's daily-post URLs and captures the day number(s),
-// month name, and year straight out of the URL itself \u2013 e.g.
-// "/current-affairs-23-24-august-2026/" \u2192 days=[23,24], month=august,
-// year=2026. Building the chapter label this way means it doesn't matter
-// what HTML structure (table, div, list...) the listing page uses; only
-// the URLs on the page need to be there, which is far more stable than
-// any particular row/column layout.
-var DAILY_POST_RE = /\/current-affairs-(\d+(?:-\d+)*)-([a-z]+)-(\d{4})\/?(?:[?#]|$)/i;
-// Fixed marketing / subscription / recap boilerplate that AffairsCloud
-// repeats at the top and bottom of every single daily post. Matched
-// against the OWN text of <table>, <p> and <li> elements only (never
-// <div>) so we never accidentally delete a wrapper that also contains
-// the real news paragraphs.
-var JUNK_PHRASES = [
-    'We are here for you to provide',
-    'will help you to get more marks in',
-    'Dear Aspirants',
-    'Read Current Affairs in',
-    'We are Hiring',
-    'Click here for Current Affairs',
-    'Click here for Affairscloud Hindu',
-    'CareersCloud Content Sharing',
-    'AffairsCloud Recommends Oliveboard Mock Test',
-    'AffairsCloud Ebook - Support Us to Grow',
-    'Govt Jobs by Category',
-    'Bank Jobs Notification',
-    'Kindly Share the General Awareness questions',
-    'all Current Affairs Hindi Content',
-    'Aspirant:',
-    'Current Affairs Today (AffairsCloud Today)',
-];
-// Turns [23, 24] into "23 & 24", [15, 16, 17] into "15, 16 & 17",
-// and [22] into "22", matching how AffairsCloud names combined-day
-// (usually weekend) posts.
-function formatDayList(days) {
-    if (days.length === 1)
-        return String(days[0]);
-    var strs = days.map(String);
-    return "".concat(strs.slice(0, -1).join(', '), " & ").concat(strs[strs.length - 1]);
-}
-var AffairsCloud = /** @class */ (function () {
-    function AffairsCloud() {
-        this.id = 'affairscloud';
-        this.name = 'AffairsCloud Current Affairs';
-        this.icon = 'src/en/affairscloud/icon.png';
-        this.site = 'https://affairscloud.com/';
-        this.version = '2.2.0';
-        this.imageRequestInit = {
-            headers: { Referer: this.site },
-        };
+// InsightsIAS's "Insights into Editorials" page is a single hand-
+// maintained archive: a heading per month ("August EDITORIALS – 2026")
+// followed by a <ul> of that month's posts, repeating back through
+// years. Each post is InsightsIAS's own original write-up analysing a
+// current issue (structured intro / findings / multi-dimensional
+// analysis / way forward / practice question) -- not a reproduction of
+// any newspaper's editorial -- built from public reporting on the
+// underlying event, in InsightsIAS's own words and structure.
+var LISTING_URL = 'https://www.insightsonindia.com/editorials/';
+// The site runs WordPress's stock "Twenty Seventeen" theme (visible in
+// its own asset paths), whose article body is reliably wrapped in
+// `.entry-content` -- unlike a customized theme, this is standard,
+// well-documented WordPress markup, not a guess.
+var CONTENT_SELECTOR = '.entry-content';
+var MONTHS_PER_PAGE = 12;
+var MONTH_PATTERN = /(January|February|March|April|May|June|July|August|September|October|November|December)\D{0,15}(\d{4})/i;
+var InsightsIASEditorials = /** @class */ (function () {
+    function InsightsIASEditorials() {
+        this.id = 'insightsias-editorials';
+        this.name = 'InsightsIAS Editorial Analysis';
+        this.icon = 'src/en/insightsiaseditorials/icon.png';
+        this.site = 'https://www.insightsonindia.com/';
+        this.version = '1.2.0';
     }
-    AffairsCloud.prototype.popularNovels = function () {
+    InsightsIASEditorials.prototype.fetchMonthGroups = function () {
         return __awaiter(this, void 0, void 0, function () {
+            var body, $, content, groups, current;
+            var _this = this;
             return __generator(this, function (_a) {
-                return [2 /*return*/, [
-                        {
-                            name: 'AffairsCloud Current Affairs \u2013 Latest',
-                            path: 'latest',
-                            cover: defaultCover_1.defaultCover,
-                        },
-                    ]];
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, (0, fetch_1.fetchApi)(LISTING_URL).then(function (r) { return r.text(); })];
+                    case 1:
+                        body = _a.sent();
+                        $ = (0, cheerio_1.load)(body);
+                        content = $(CONTENT_SELECTOR);
+                        if (content.length === 0)
+                            content = $('article');
+                        groups = [];
+                        current = null;
+                        // Walk headings and lists in DOCUMENT ORDER via .find(), not
+                        // .children(). The page's month heading + list pairs aren't
+                        // guaranteed to be direct children of the content container (e.g.
+                        // a block editor can wrap each pair in its own <div>), and .find()
+                        // still returns matches in reading order regardless of how deep
+                        // they're nested, so this works either way.
+                        content.find('h1, h2, h3, h4, h5, h6, ul').each(function (_, el) {
+                            var _a;
+                            var $el = $(el);
+                            var tag = ((_a = el.tagName) === null || _a === void 0 ? void 0 : _a.toLowerCase()) || '';
+                            if (/^h[1-6]$/.test(tag)) {
+                                var text = $el.text().trim();
+                                var match = text.match(MONTH_PATTERN);
+                                if (match) {
+                                    var monthName = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+                                    var year = match[2];
+                                    current = {
+                                        label: "".concat(monthName, " ").concat(year),
+                                        slug: "".concat(monthName.toLowerCase(), "-").concat(year),
+                                        items: [],
+                                    };
+                                    groups.push(current);
+                                }
+                                return;
+                            }
+                            // tag === 'ul'. Skip a <ul> nested inside another <ul> we've
+                            // already processed (its <a> tags would otherwise be double
+                            // counted once by the outer list and again here).
+                            if (current && $el.parents('ul').length === 0) {
+                                $el.find('a[href]').each(function (_, a) {
+                                    var href = $(a).attr('href') || '';
+                                    var name = $(a).text().trim();
+                                    if (!href || !name)
+                                        return;
+                                    current.items.push({
+                                        name: name,
+                                        path: href.replace(_this.site, ''),
+                                    });
+                                });
+                            }
+                        });
+                        return [2 /*return*/, groups];
+                }
             });
         });
     };
-    AffairsCloud.prototype.parseNovel = function (novelPath) {
+    InsightsIASEditorials.prototype.popularNovels = function (pageNo) {
         return __awaiter(this, void 0, void 0, function () {
-            var novel, found, _loop_1, page, state_1, items;
+            var groups, start;
             return __generator(this, function (_a) {
                 switch (_a.label) {
-                    case 0:
+                    case 0: return [4 /*yield*/, this.fetchMonthGroups()];
+                    case 1:
+                        groups = _a.sent();
+                        start = (pageNo - 1) * MONTHS_PER_PAGE;
+                        return [2 /*return*/, groups.slice(start, start + MONTHS_PER_PAGE).map(function (g) { return ({
+                                name: "Editorial Analysis \u2013 ".concat(g.label),
+                                path: g.slug,
+                                cover: defaultCover_1.defaultCover,
+                            }); })];
+                }
+            });
+        });
+    };
+    InsightsIASEditorials.prototype.parseNovel = function (novelPath) {
+        return __awaiter(this, void 0, void 0, function () {
+            var groups, group, novel;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this.fetchMonthGroups()];
+                    case 1:
+                        groups = _a.sent();
+                        group = groups.find(function (g) { return g.slug === novelPath; });
                         novel = {
                             path: novelPath,
-                            name: 'AffairsCloud Current Affairs \u2013 Latest',
+                            name: group
+                                ? "Editorial Analysis \u2013 ".concat(group.label)
+                                : 'Editorial Analysis',
                             cover: defaultCover_1.defaultCover,
-                            summary: 'Daily current affairs digests from AffairsCloud, refreshed each time this list is opened. Weekends and multi-day gaps are combined into a single post exactly as AffairsCloud publishes them, so each chapter is one reading day (or one combined weekend).',
-                            chapters: [],
+                            summary: "InsightsIAS's own original UPSC-focused analysis of major issues in the news that month -- structured background, findings, multi-dimensional analysis, and a practice question -- not a reproduction of any newspaper's editorial.",
+                            chapters: ((group === null || group === void 0 ? void 0 : group.items) || []).map(function (item) { return ({
+                                name: item.name,
+                                path: item.path,
+                            }); }),
                         };
-                        found = new Map();
-                        _loop_1 = function (page) {
-                            var url, body, _b, $, matchesOnThisPage;
-                            return __generator(this, function (_c) {
-                                switch (_c.label) {
-                                    case 0:
-                                        url = page === 1 ? HUB_URL : "".concat(HUB_URL, "page/").concat(page, "/");
-                                        body = void 0;
-                                        _c.label = 1;
-                                    case 1:
-                                        _c.trys.push([1, 3, , 4]);
-                                        return [4 /*yield*/, (0, fetch_1.fetchApi)(url).then(function (r) { return r.text(); })];
-                                    case 2:
-                                        body = _c.sent();
-                                        return [3 /*break*/, 4];
-                                    case 3:
-                                        _b = _c.sent();
-                                        return [2 /*return*/, "break"];
-                                    case 4:
-                                        $ = (0, cheerio_1.load)(body);
-                                        matchesOnThisPage = 0;
-                                        $('a').each(function (_, el) {
-                                            var href = $(el).attr('href') || '';
-                                            var match = href.match(DAILY_POST_RE);
-                                            if (!match)
-                                                return;
-                                            var dayGroup = match[1], monthSlug = match[2], year = match[3];
-                                            if (!MONTH_SLUGS.includes(monthSlug.toLowerCase()))
-                                                return;
-                                            var path = href
-                                                .replace(/^https?:\/\/[^/]+/i, '')
-                                                .replace(/\/?$/, '/');
-                                            if (!found.has(path)) {
-                                                found.set(path, {
-                                                    days: dayGroup.split('-').map(function (d) { return parseInt(d, 10); }),
-                                                    month: monthSlug.toLowerCase(),
-                                                    year: year,
-                                                });
-                                            }
-                                            matchesOnThisPage++;
-                                        });
-                                        // Hub page had no daily-post links at all \u2013 we've likely
-                                        // paginated past the end of the listing, so stop early.
-                                        if (matchesOnThisPage === 0)
-                                            return [2 /*return*/, "break"];
-                                        return [2 /*return*/];
-                                }
-                            });
-                        };
-                        page = 1;
-                        _a.label = 1;
-                    case 1:
-                        if (!(page <= HUB_PAGES_TO_FETCH)) return [3 /*break*/, 4];
-                        return [5 /*yield**/, _loop_1(page)];
-                    case 2:
-                        state_1 = _a.sent();
-                        if (state_1 === "break")
-                            return [3 /*break*/, 4];
-                        _a.label = 3;
-                    case 3:
-                        page++;
-                        return [3 /*break*/, 1];
-                    case 4:
-                        items = Array.from(found.entries()).map(function (_a) {
-                            var path = _a[0], info = _a[1];
-                            return ({
-                                path: path,
-                                sortKey: parseInt(info.year, 10) * 10000 +
-                                    MONTH_SLUGS.indexOf(info.month) * 100 +
-                                    info.days[0],
-                                label: "".concat(formatDayList(info.days), " ").concat(MONTH_LABELS[MONTH_SLUGS.indexOf(info.month)], " ").concat(info.year),
-                            });
-                        });
-                        // Oldest first, like a normal novel's chapter order.
-                        items.sort(function (a, b) { return a.sortKey - b.sortKey; });
-                        novel.chapters = items.map(function (item) { return ({
-                            name: "Current Affairs ".concat(item.label),
-                            path: item.path.replace(/^\//, ''),
-                        }); });
+                        // Listing order is newest-first within the month; reverse for
+                        // chronological reading order.
+                        novel.chapters.reverse();
                         return [2 /*return*/, novel];
                 }
             });
         });
     };
-    AffairsCloud.prototype.parseChapter = function (chapterPath) {
+    InsightsIASEditorials.prototype.parseChapter = function (chapterPath) {
         return __awaiter(this, void 0, void 0, function () {
-            var body, $, container, marker;
+            var url, body, $, container;
             return __generator(this, function (_a) {
                 switch (_a.label) {
-                    case 0: return [4 /*yield*/, (0, fetch_1.fetchApi)(this.site + chapterPath).then(function (r) { return r.text(); })];
+                    case 0:
+                        url = chapterPath.startsWith('http')
+                            ? chapterPath
+                            : this.site + chapterPath;
+                        return [4 /*yield*/, (0, fetch_1.fetchApi)(url).then(function (r) { return r.text(); })];
                     case 1:
                         body = _a.sent();
                         $ = (0, cheerio_1.load)(body);
-                        container = $('.td-post-content');
-                        if (container.length === 0)
-                            container = $('article .entry-content');
+                        container = $(CONTENT_SELECTOR);
                         if (container.length === 0)
                             container = $('article');
-                        marker = container
-                            .find('*')
-                            .filter(function (_, el) { return /^\*{3,}$/.test($(el).text().trim()); })
-                            .first();
-                        if (marker.length > 0) {
-                            marker.nextAll().remove();
-                            marker.remove();
-                        }
-                        // Fixed intro boilerplate (subscription/app nudges) that appears
-                        // before the real news starts, matched on leaf-ish elements only
-                        // so we never risk deleting a wrapper that also holds real text.
-                        container.find('table, p, li').each(function (_, el) {
-                            var text = $(el).text();
-                            if (JUNK_PHRASES.some(function (phrase) { return text.includes(phrase); })) {
-                                $(el).remove();
-                            }
-                        });
-                        // Drop every image. AffairsCloud's real news bullets are plain
-                        // text; images here are ads, banners, and app/QR promos, not
-                        // content.
+                        // Drop images and every link, text included. NOTE: unlike
+                        // AffairsCloud's bulletin-style posts, InsightsIAS's editorials
+                        // are prose analysis and are somewhat more likely to have a
+                        // meaningful inline link (e.g. to a source or a related
+                        // InsightsIAS post) inside a real paragraph, so this is a slightly
+                        // blunter tool here than on the other plugins. If you notice a
+                        // chapter missing something that reads like it belonged, this
+                        // blanket removal is the first place to loosen.
                         container.find('img').remove();
-                        // Drop every link, text included. In practice, every hyperlink
-                        // AffairsCloud puts inside a post \u2013 app download prompts,
-                        // "click here" navigation, mock-test/job listings, "read this in
-                        // Hindi" \u2013 is app/site navigation rather than part of the
-                        // actual news, and the real current-affairs bullets themselves
-                        // are always plain, unlinked text. So rather than trying to guess
-                        // which specific links are "content" (which would need matching
-                        // every possible promo phrasing forever), every <a> is removed
-                        // outright, text and all.
                         container.find('a').remove();
-                        // Some list items / paragraphs end up empty once their only
-                        // content was an image or a link (e.g. a footer <li> that was
-                        // just a link). Clear those out so the chapter doesn't end with
-                        // stray blank bullets.
-                        container.find('li, p').each(function (_, el) {
+                        // Clean up anything left empty once its only content was a
+                        // stripped link or image (this also removes the printfriendly
+                        // "PDF & Email" widget, which was pure image/link chrome).
+                        container.find('p, li').each(function (_, el) {
                             if ($(el).text().trim() === '' && $(el).find('img').length === 0) {
                                 $(el).remove();
                             }
@@ -300,15 +210,27 @@ var AffairsCloud = /** @class */ (function () {
             });
         });
     };
-    AffairsCloud.prototype.searchNovels = function () {
+    InsightsIASEditorials.prototype.searchNovels = function (searchTerm) {
         return __awaiter(this, void 0, void 0, function () {
+            var term, groups;
             return __generator(this, function (_a) {
-                // There's only one "novel" now (the rolling latest-posts feed), so
-                // there's nothing meaningful to search against.
-                return [2 /*return*/, []];
+                switch (_a.label) {
+                    case 0:
+                        term = searchTerm.toLowerCase();
+                        return [4 /*yield*/, this.fetchMonthGroups()];
+                    case 1:
+                        groups = _a.sent();
+                        return [2 /*return*/, groups
+                                .filter(function (g) { return g.label.toLowerCase().includes(term); })
+                                .map(function (g) { return ({
+                                name: "Editorial Analysis \u2013 ".concat(g.label),
+                                path: g.slug,
+                                cover: defaultCover_1.defaultCover,
+                            }); })];
+                }
             });
         });
     };
-    return AffairsCloud;
+    return InsightsIASEditorials;
 }());
-exports.default = new AffairsCloud();
+exports.default = new InsightsIASEditorials();
